@@ -1,0 +1,46 @@
+router:
+    serviceRegistry:
+        insecure: false
+shared:
+    node:
+        haEnabled: true
+        taskAffinity: any
+    logging:
+        consoleLog:
+            enabled: false
+    extraJavaOpts: >
+        -Xms8g -Xmx16g
+        -Dartifactory.access.client.max.connections=150
+        -Dartifactory.async.corePoolSize=128
+        -Dartifactory.async.poolMaxQueueSize=100000
+        -Dartifactory.http.client.max.total.connections=150
+        -Dartifactory.http.client.max.connections.per.route=120
+    database:
+        type: "postgresql"
+        driver: "org.postgresql.Driver"
+artifactory:
+    database:
+        maxOpenConnections: 299
+    tomcat:
+        maintenanceConnector:
+            port: 8091
+        connector:
+            maxThreads: 600
+            sendReasonPhrase: false
+            extraConfig: acceptCount="100"
+frontend:
+    session:
+        timeMinutes: "30"
+access:
+    database:
+        maxOpenConnections: 300
+    tomcat:
+        connector:
+            maxThreads: 150
+            sendReasonPhrase: false
+            extraConfig: acceptCount="100"
+metadata:
+    database:
+        maxOpenConnections: 300
+mc: 
+  enabled: true

@@ -1,0 +1,269 @@
+# Default values for jfrog-platform
+
+# nameOverride:
+# fullnameOverride:
+
+# If this is an upgrade over an existing platform chart(>= 10.0.0), explicitly pass 'gaUpgradeReady=true' to upgrade
+gaUpgradeReady: false
+
+global:
+  # imagePullSecrets:
+  #   - myRegistryKeySecretName
+  imageRegistry: releases-docker.jfrog.io
+  jfrogUrl: '{{ include "jfrog-platform.jfrogUrl" . }}'
+  ## Artifactory UI URL - Mandatory
+  ## Update jfrogUrlUI before running builds on Pipelines
+  ## This must be the external URL of Artifactory that any service (such as scm provider) and buildnodes
+  ## that you're using can access, for example: https://artifactory.example.com
+  ## This is a test url and must be changed before running any builds
+  jfrogUrlUI: http://my.artifactory.instance.com
+  joinKey: EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+  masterKey: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  ## Chart.AppVersion for each product can be overidden using global.versions.<product>
+  ## For example : For artifactory, using global.versions.artifactory
+  ## Note: Order of preference is 1) global.versions 2) .Values.artifactory.image.tag 3) Chart.AppVersion
+  versions:
+    router: 7.51.0
+  #   artifactory:
+  #   xray:
+  #   distribution:
+  #   insight:
+  #   pipelines:
+  #   pdnServer:
+  database:
+    host: "myntrapostgres.postgres.database.azure.com"
+    port: 5432
+    sslMode: disable
+    adminUsername: postgres
+    adminPassword: <my password>
+    secrets: {}
+      # adminUsername:
+      #   name: "jp-database-creds"
+      #   key: "db-admin-user"
+      # adminPassword:
+      #   name: "jp-database-creds"
+      #   key: "db-admin-password"
+    initContainerSetupDBImage: releases-docker.jfrog.io/postgres:13.4-alpine
+    # Run the postgres init container as a non-default uid
+    initContainerSetupDBUser:
+    initContainerImagePullPolicy: Always
+    # If you are using external postgresql, set initDBCreation: false
+    initDBCreation: false
+  ## certificates added to this secret will be copied to $JFROG_HOME/<product>/var/etc/security/keys/trusted directory
+  customCertificates:
+    enabled: false
+    # certificateSecretName:
+
+  customInitContainersBegin: |
+    {{ template "initdb" . }}
+  customVolumes: |
+    {{ template "initdb-volume" . }}
+
+## This Postgresql is used by all products , set postgresql.enabled: false, when you want to use external postgresql for all products
+postgresql:
+  enabled: false
+  image:
+    repository: bitnami/postgresql
+    tag: 13.4.0-debian-10-r39
+  postgresqlUsername: postgres
+  postgresqlPassword: <my password>
+  postgresqlExtendedConf:
+    max_connections: 1000
+    max_wal_size: 1000MB
+  persistence:
+    size: 500Gi
+
+## This Rabbitmq is used by Xray and Pipelines only, set rabbitmq.enabled: false, when Xray or Pipelines is not enabled
+rabbitmq:
+  enabled: true
+  image:
+    repository: bitnami/rabbitmq
+    tag: 3.9.21-debian-11-r0
+  auth:
+    username: admin
+    password: password
+    erlangCookie: secretcookie
+  maxAvailableSchedulers: null
+  onlineSchedulers: null
+  persistence:
+    size: 50Gi
+  extraEnvVars:
+    - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
+      value: "+S 2:2 +sbwt none +sbwtdcpu none +sbwtdio none"
+  extraSecretsPrependReleaseName: true
+  extraSecrets:
+    load-definition:
+      load_definition.json: |
+        {
+          "vhosts": [
+            {
+              "name": "xray"
+            }
+          ],
+          "permissions": [
+          {
+            "user": "admin",
+            "vhost": "xray",
+            "configure": ".*",
+            "write": ".*",
+            "read": ".*"
+          }
+          ],
+          "policies": [
+            {
+              "name": "ha-all",
+              "apply-to": "all",
+              "pattern": ".*",
+              "vhost": "xray",
+              "definition": {
+                "ha-mode": "all",
+                "ha-sync-mode": "automatic",
+              }
+            }
+          ]
+        }
+  loadDefinition:
+    enabled: true
+    existingSecret: '{{ .Release.Name }}-load-definition'
+
+## This Redis is used by pipelines only, set redis.enabled: false, when pipelines is not enabled
+redis:
+  enabled: true
+  image:
+    repository: bitnami/redis
+    tag: 6.2.1-debian-10-r9
+  cluster:
+    enabled: false
+  usePassword: false
+
+artifactory:
+  installerInfo: '{"productId": "Helm_JFrogPlatform/{{ printf "10.9.4-%s" .Chart.AppVersion  }}", "features": [ { "featureId": "Platform/{{ printf "%s-%s" "kubernetes" .Capabilities.KubeVersion.Version }}"}]}'
+  enabled: true
+  systemYamlOverride:
+    existingSecret: artifactory-custom-systemyaml2
+    dataKey: system.yaml
+  postgresql:
+    enabled: false
+  waitForDatabase: false
+  database:
+    type: postgresql
+    driver: org.postgresql.Driver
+    url: "jdbc:postgresql://myntrapostgres.postgres.database.azure.com:5432/artmain?user=postgres&password=<my password>&sslmode=require"
+    user: postgres
+    password: <my password>
+  # Note: For artifactory Pro license, mission-control is not supported, Hence, set mc.enabled: false
+  mc:
+    enabled: true
+  artifactory:
+    # Note: For HA deployments, set replicaCount >1 (recommended 3)
+    replicaCount: 1
+    migration:
+      enabled: false
+    persistence:
+      size: 200Gi 
+      binarystoreXml: |
+        <!-- The custom XML snippet -->
+        <config version="1">
+            <chain template="azure-blob-storage-v2-direct"/>
+            <provider type="cache-fs" id="cache-fs">
+                <maxCacheSize>6e+10</maxCacheSize>
+                <cacheProviderDir>cache</cacheProviderDir>
+            </provider>
+            <provider type="azure-blob-storage-v2" id="azure-blob-storage-v2">
+                <sasToken><![<my token]]></sasToken>
+                <container>art</container>
+                <accountName>nagagpremium</accountName>
+                <testConnection>false</testConnection>
+                        <!-- 1OO MB chunk 
+                <multipartElementSize>10485760</multipartElementSize>
+                        -->
+                <multipartElementSize>20971520</multipartElementSize>
+                <!-- Chunking start from 1 GB binary size -->
+                <multiPartLimit>104857600</multiPartLimit>
+                <binariesDir>/opt/jfrog/artifactory/var/data/artifactory/filestore-azure-upload</binariesDir>
+                <tempDir>_pre</tempDir>
+            </provider>
+        </config>
+
+xray:
+  enabled: true
+  unifiedUpgradeAllowed: true
+  postgresql:
+    enabled: false
+  database:
+    url: 'postgres://postgres:<my password>@myntrapostgres.postgres.database.azure.com/postgres?sslmode=require'
+    user: postgres
+    password: <my password>
+  common:
+    persistence:
+      size: 200Gi
+    rabbitmq:
+      connectionConfigFromEnvironment: false
+  rabbitmq:
+    enabled: false
+    external:
+      username: admin
+      password: password
+      url: "amqp://{{ .Release.Name }}-rabbitmq:5672/xray"
+      erlangCookie: secretcookie
+
+distribution:
+  enabled: true
+  unifiedUpgradeAllowed: true
+  postgresql:
+    enabled: false
+  database:
+    url: 'jdbc:postgresql://myntrapostgres.postgres.database.azure.com:5432/dist?user=postgres&password=<my password>&sslmode=require'
+    user: postgres
+    password: <my password>
+
+insight:
+  enabled: true
+  unifiedUpgradeAllowed: true
+  postgresql:
+    enabled: false
+  database:
+    url: 'jdbc:postgresql://myntrapostgres.postgres.database.azure.com:5432/insight?user=postgres&password=<my password>&sslmode=require'
+    user: postgres
+    password: <my password>
+    name: 'insight'
+  elasticsearch:
+    javaOpts:
+      xms: "2g"
+      xmx: "2g"
+
+pipelines:
+  enabled: true
+  unifiedUpgradeAllowed: true
+  postgresql:
+    enabled: false
+  global:
+    postgresql:
+      host: "myntrapostgres.postgres.database.azure.com"
+      port: 5432
+      database: "pipelinesdb"
+      user: "postgres"
+      password: "<my password>"
+  pipelines:
+    msg:
+      uiUserPassword: password
+  redis:
+    enabled: false
+  rabbitmq:
+    enabled: false
+    internal_ip: "{{ .Release.Name }}-rabbitmq"
+    msg_hostname: "{{ .Release.Name }}-rabbitmq"
+    port: 5672
+    manager_port: 15672
+    ms_username: admin
+    ms_password: password
+    cp_username: admin
+    cp_password: password
+    root_vhost_exchange_name: rootvhost
+    erlang_cookie: secretcookie
+    build_vhost_name: pipelines
+    root_vhost_name: pipelinesRoot
+    protocol: amqp
+
+pdnServer:
+  enabled: false
